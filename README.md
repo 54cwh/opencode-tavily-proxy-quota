@@ -40,17 +40,23 @@ the plugin expands itself because `cli.json` does not (unlike `opencode.jsonc`).
 ## Layout
 
 ```
-~/.config/opencode/plugins/opencode-tavily-quota/
-├── index.ts        # server entrypoint (no-op; required for discovery)
-├── tui.tsx         # TUI entrypoint: sidebar slot + command
-├── usage.ts        # key resolution, /usage fetch, formatting
-└── usage.test.ts   # unit tests for usage.ts
+index.ts         # server entrypoint (no-op; required for discovery)
+tui.tsx          # TUI entrypoint: sidebar slot + command
+usage.ts         # key resolution, /usage fetch, formatting
+usage.test.ts    # unit tests for usage.ts
+scripts/build.mjs
+dist/            # built entrypoints shipped to npm (dist/index.js, dist/tui.js)
 ```
 
-OpenCode discovers local plugins as directories under
-`~/.config/opencode/plugins/`, or `<project>/.opencode/plugins/`. The server
-entrypoint (`index.ts` / `server.ts`) satisfies discovery; the `tui` entrypoint
-(`tui.tsx`) is loaded by the CLI to render the sidebar.
+`npm run build` compiles the TypeScript/JSX sources into `dist/`, which is what
+`package.json` exports and what npm publishes. Published plugins ship built
+`dist/*.js`: OpenCode transpiles `.tsx` entrypoints as it loads them, and the
+Solid JSX runtime (`@opentui/solid`) is only provided at runtime, not from the
+installed plugin.
+
+OpenCode installs package plugins under `~/.cache/opencode/npm/`. The server
+entrypoint (`dist/index.js`) satisfies discovery; the `tui` entrypoint
+(`dist/tui.js`) is loaded by the CLI to render the sidebar.
 
 ## Configuration
 
@@ -60,7 +66,7 @@ Register the plugin in `cli.json` to pass the API key as a plugin option:
 {
   "plugins": [
     {
-      "package": "file:///home/me/.config/opencode/plugins/opencode-tavily-quota",
+      "package": "@cardinal4/opencode-tavily-quota@latest",
       "options": {
         "apiKey": "tvly-..."
       }
@@ -84,7 +90,7 @@ reference as `apiKey` to avoid pasting the raw key into `cli.json`:
 {
   "plugins": [
     {
-      "package": "file:///home/me/.config/opencode/plugins/opencode-tavily-quota",
+      "package": "@cardinal4/opencode-tavily-quota@latest",
       "options": {
         "apiKey": "{file:~/.secrets/tavily-api-key}"
       }
