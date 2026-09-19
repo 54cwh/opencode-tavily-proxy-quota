@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "@cardinal4/opencode-tavily-quota",
+  "version": "1.0.0",
+  "description": "OpenCode 2 TUI plugin that shows remaining Tavily API credits in the sidebar.",
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": "./index.ts",
+    "./server": "./index.ts",
+    "./tui": "./tui.tsx"
+  },
+  "files": [
+    "index.ts",
+    "tui.tsx",
+    "usage.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "tsx --test usage.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "opencode-tui",
+    "tavily",
+    "quota",
+    "credits"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cardin/opencode-tavily-quota.git"
+  },
+  "bugs": {
+    "url": "https://github.com/cardin/opencode-tavily-quota/issues"
+  },
+  "homepage": "https://github.com/cardin/opencode-tavily-quota#readme",
+  "peerDependencies": {
+    "@opencode/plugin": "^2.0.7",
+    "@opentui/core": ">=0.5.10",
+    "@opentui/solid": ">=0.5.10",
+    "solid-js": ">=1.9.0"
+  },
+  "peerDependenciesMeta": {
+    "@opentui/core": {
+      "optional": true
+    },
+    "@opentui/solid": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@opencode/plugin": "^2.0.7",
+    "@opentui/core": "^0.5.11",
+    "@opentui/solid": "^0.5.11",
+    "@types/node": "^22.0.0",
+    "solid-js": "^1.9.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.6.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
