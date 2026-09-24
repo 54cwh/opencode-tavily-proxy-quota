@@ -12,21 +12,23 @@
  * Colors follow the built-in quota sections: the heading uses the default text
  * color and the body (bar included) uses the muted/subdued text color.
  *
- * Authenticate with `TAVILY_API_KEY`, or with the `apiKey` plugin option
- * configured on this plugin in `cli.json`. Resolution and the network call
- * live in `./usage.ts`.
+ * Authenticate with `TAVILY_API_KEY`, the `apiKey` plugin option in `cli.json`,
+ * or OpenCode's active Tavily integration. A saved key is used server-side.
  */
 
 import type { RGBA } from "@opentui/core";
 import { Plugin } from "@opencode/plugin/tui";
 import { createSignal } from "solid-js";
 import {
-  fetchQuota,
+  fetchQuotaWithFallback,
   formatPercent,
   formatQuotaLine,
   formatRemaining,
+  formatResetLine,
   type QuotaSnapshot,
 } from "./usage";
+import type { QuotaResult } from "./usage";
+import { TavilyQuotaRpc } from "./rpc";
 
 type Context = Plugin.Context;
 
@@ -63,7 +65,7 @@ function readThemeColors(context: Context): ThemeColors {
   };
 }
 
-export function buildLines(state: ViewState): string[] {
+export function buildLines(state: ViewState, now: number = Date.now()): string[] {
   if (state.status === "loading") {
     return ["loading…"];
   }
@@ -72,7 +74,9 @@ export function buildLines(state: ViewState): string[] {
   }
 
   const snapshot = state.snapshot;
-  return [formatQuotaLine(snapshot)];
+  // Reset countdown sits between the heading and the bar, matching the sidebar
+  // order used by the built-in quota section.
+  return [formatResetLine(now), formatQuotaLine(snapshot)];
 }
 
 function TavilyQuotaSidebar(props: { context: Context; state: () => ViewState }) {
@@ -113,7 +117,7 @@ function TavilyQuotaCommands(props: {
           const next = await props.refresh();
           const message =
             next.status === "ready"
-              ? `${formatRemaining(next.snapshot)} · ${formatPercent(next.snapshot.percentRemaining)}`
+              ? `${formatRemaining(next.snapshot)} · ${formatPercent(next.snapshot.percentRemaining)} · ${formatResetLine()}`
               : next.status === "error"
                 ? next.message
                 : "still loading…";
@@ -135,6 +139,7 @@ export const TavilyQuotaTuiPlugin = Plugin.define({
   async setup(context) {
     const [state, setState] = createSignal<ViewState>({ status: "loading" });
     const apiKey = typeof context.options.apiKey === "string" ? context.options.apiKey : undefined;
+    const remote = context.client.rpc(TavilyQuotaRpc);
     const refreshMs =
       typeof context.options.refreshMs === "number" && context.options.refreshMs > 0
         ? context.options.refreshMs
@@ -147,7 +152,12 @@ export const TavilyQuotaTuiPlugin = Plugin.define({
       if (inFlight) return state();
       inFlight = true;
       try {
-        const result = await fetchQuota({ apiKey });
+        const result = await fetchQuotaWithFallback({
+          apiKey,
+          remote: () => remote.usage({}, {
+            location: context.location ?? context.data.location.default(),
+          }) as Promise<QuotaResult>,
+        });
         if (!disposed) {
           setState(
             result.ok

@@ -88,6 +88,25 @@ export interface FetchQuotaOptions {
   now?: number;
 }
 
+/** Prefer CLI credentials; ask the server only when the CLI has no key. */
+export async function fetchQuotaWithFallback(
+  options: FetchQuotaOptions & { remote: () => Promise<QuotaResult> },
+): Promise<QuotaResult> {
+  try {
+    const key = resolveApiKey(options.env, options.apiKey, options);
+    if (key) return fetchQuota({ ...options, apiKey: key, env: {} });
+  } catch {
+    // Preserve the existing inline error for an unreadable {file:...} option.
+    return fetchQuota(options);
+  }
+  try {
+    return await options.remote();
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return { ok: false, message: `OpenCode Tavily credential unavailable: ${reason}` };
+  }
+}
+
 function finite(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
@@ -242,6 +261,45 @@ export function formatQuotaLine(
 /** Format the headline line, e.g. `839 credits left`. */
 export function formatRemaining(snapshot: QuotaSnapshot): string {
   return `${snapshot.remaining} credits left`;
+}
+
+const MS_PER_MINUTE = 60_000;
+const MS_PER_HOUR = 3_600_000;
+const MS_PER_DAY = 86_400_000;
+
+/**
+ * When the credit quota next resets, as epoch milliseconds.
+ *
+ * Tavily resets credits on the first day of each month (calendar-based, not the
+ * billing date) and `/usage` does not report when. Derive it as `00:00 UTC` on
+ * the 1st of the following month. Tavily does not document a reset timezone;
+ * UTC is assumed (see the README).
+ */
+export function nextMonthlyResetAt(now: number = Date.now()): number {
+  const date = new Date(now);
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1, 0, 0, 0, 0);
+}
+
+/**
+ * Countdown to `resetAt`, e.g. `12d 4h`, `5h 12m`, or `45m`.
+ *
+ * Days and hours are floored so the value never overstates the time left; a
+ * sub-minute remainder rounds up to `1m`, and a past reset reads `0m`.
+ */
+export function formatResetCountdown(resetAt: number, now: number = Date.now()): string {
+  const diff = resetAt - now;
+  if (!Number.isFinite(diff) || diff <= 0) return "0m";
+  const days = Math.floor(diff / MS_PER_DAY);
+  const hours = Math.floor((diff % MS_PER_DAY) / MS_PER_HOUR);
+  const minutes = Math.floor((diff % MS_PER_HOUR) / MS_PER_MINUTE);
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${Math.max(1, minutes)}m`;
+}
+
+/** Sidebar line for the next reset, e.g. `resets in 12d 4h`. */
+export function formatResetLine(now: number = Date.now()): string {
+  return `resets in ${formatResetCountdown(nextMonthlyResetAt(now), now)}`;
 }
 
 /**

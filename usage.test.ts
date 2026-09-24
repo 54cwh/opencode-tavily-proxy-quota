@@ -11,9 +11,13 @@ import {
   deriveSnapshot,
   expandOptionValue,
   fetchQuota,
+  fetchQuotaWithFallback,
   formatPercent,
   formatQuotaLine,
   formatRemaining,
+  formatResetCountdown,
+  formatResetLine,
+  nextMonthlyResetAt,
   progressBar,
   resolveApiKey,
   SIDEBAR_WIDTH,
@@ -126,6 +130,47 @@ test("formatQuotaLine keeps a full label inside the percent column", () => {
   });
   assert.ok(line.endsWith("100% left"));
   assert.equal(line.length, SIDEBAR_WIDTH);
+});
+
+test("nextMonthlyResetAt is 00:00 UTC on the 1st of the next month", () => {
+  const now = Date.UTC(2026, 8, 24, 15, 30); // Sep 24 2026, 15:30 UTC
+  assert.equal(nextMonthlyResetAt(now), Date.UTC(2026, 9, 1));
+});
+
+test("nextMonthlyResetAt rolls over the year boundary", () => {
+  const now = Date.UTC(2026, 11, 31, 23, 59, 59); // Dec 31 2026
+  assert.equal(nextMonthlyResetAt(now), Date.UTC(2027, 0, 1));
+});
+
+test("formatResetCountdown reports days and hours", () => {
+  const now = Date.UTC(2026, 8, 24, 12, 0); // Sep 24 2026, 12:00 UTC
+  const resetAt = Date.UTC(2026, 9, 1);
+  assert.equal(formatResetCountdown(resetAt, now), "6d 12h");
+});
+
+test("formatResetCountdown drops to hours and minutes in the last day", () => {
+  const resetAt = Date.UTC(2026, 9, 1);
+  assert.equal(formatResetCountdown(resetAt, resetAt - (5 * 3_600_000 + 12 * 60_000)), "5h 12m");
+  assert.equal(formatResetCountdown(resetAt, resetAt - 45 * 60_000), "45m");
+  // A sub-minute remainder still reads as `1m` rather than `0m`.
+  assert.equal(formatResetCountdown(resetAt, resetAt - 30_000), "1m");
+});
+
+test("formatResetCountdown floors instead of overstating the time left", () => {
+  const resetAt = Date.UTC(2026, 9, 1);
+  const now = resetAt - (6 * 86_400_000 + 12 * 3_600_000 + 59 * 60_000 + 59_000);
+  assert.equal(formatResetCountdown(resetAt, now), "6d 12h");
+});
+
+test("formatResetCountdown reports 0m at or past the reset", () => {
+  const resetAt = Date.UTC(2026, 9, 1);
+  assert.equal(formatResetCountdown(resetAt, resetAt), "0m");
+  assert.equal(formatResetCountdown(resetAt, resetAt + 1_000), "0m");
+});
+
+test("formatResetLine renders the sidebar countdown", () => {
+  const now = Date.UTC(2026, 8, 24, 12, 0); // Sep 24 2026, 12:00 UTC
+  assert.equal(formatResetLine(now), "resets in 6d 12h");
 });
 
 test("resolveApiKey prefers the environment and falls back to the plugin option", () => {
@@ -306,4 +351,33 @@ test("fetchQuota surfaces a bad file reference without calling fetch", async () 
   assert.equal(called, false);
   assert.equal(result.ok, false);
   if (!result.ok) assert.match(result.message, /bad file reference: "\{file:\/missing\}"/);
+});
+
+test("fetchQuotaWithFallback uses OpenCode only when the CLI has no key", async () => {
+  let remoteCalls = 0;
+  let authorization: string | null = null;
+  const remote = async () => {
+    remoteCalls++;
+    return { ok: false as const, message: "not connected" };
+  };
+  const fetchImpl = (async (_url: unknown, init?: RequestInit) => {
+    authorization = new Headers(init?.headers).get("authorization");
+    return jsonResponse(KEY_PAYLOAD);
+  }) as typeof fetch;
+
+  const local = await fetchQuotaWithFallback({
+    env: { TAVILY_API_KEY: "env-key" }, apiKey: "option-key", remote, fetchImpl,
+  });
+  assert.equal(local.ok, true);
+  assert.equal(authorization, "Bearer env-key");
+  assert.equal(remoteCalls, 0);
+
+  const option = await fetchQuotaWithFallback({ env: {}, apiKey: "option-key", remote, fetchImpl });
+  assert.equal(option.ok, true);
+  assert.equal(authorization, "Bearer option-key");
+  assert.equal(remoteCalls, 0);
+
+  const connected = await fetchQuotaWithFallback({ env: {}, remote, fetchImpl });
+  assert.deepEqual(connected, { ok: false, message: "not connected" });
+  assert.equal(remoteCalls, 1);
 });

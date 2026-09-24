@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@cardinal4/opencode-tavily-quota",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "OpenCode 2 TUI plugin that shows remaining Tavily API credits in the sidebar.",
   "type": "module",
   "license": "MIT",
@@ -19,7 +19,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "prepublishOnly": "npm run build",
-    "test": "tsx --test usage.test.ts",
+    "test": "tsx --test usage.test.ts index.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [

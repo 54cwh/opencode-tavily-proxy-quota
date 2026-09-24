@@ -1,23 +1,31 @@
 /**
- * Server entrypoint for the Tavily quota sidebar plugin.
- *
- * OpenCode discovers a local plugin directory by its `index` (server) entry and
- * loads the `tui` entry beside it for the terminal UI. All rendering happens in
- * the CLI runtime (`tui.tsx`); this file only exists so the directory is a
- * complete plugin and shows up by id instead of as an anonymous entry.
- *
- * It deliberately imports nothing beyond `@opencode/plugin` so the background
- * service can load it in any runtime.
+ * Server entrypoint. Resolve the active Tavily integration credential and
+ * fetch quota here; only the quota result crosses the RPC boundary to the TUI.
  */
 
 import { Plugin } from "@opencode/plugin";
+import { TavilyQuotaRpc } from "./rpc";
+import { fetchQuota } from "./usage";
 
 export const PLUGIN_ID = "opencode-tavily-quota";
 
 export default Plugin.define({
   id: PLUGIN_ID,
-  setup() {
-    // Intentional no-op: the sidebar and command are registered by the TUI
-    // entrypoint (tui.tsx), which runs in the CLI process.
+  async setup(ctx) {
+    await ctx.rpc.register(TavilyQuotaRpc, {
+      usage: async () => {
+        const connection = await ctx.integration.connection.active("tavily");
+        const credential = connection && await ctx.integration.connection.resolve(connection);
+        const key = credential?.type === "key"
+          ? credential.key
+          : connection?.type === "env"
+            ? process.env[connection.name]
+            : undefined;
+        if (!key) {
+          return { ok: false, message: "no active Tavily connection (run opencode auth login tavily)" };
+        }
+        return fetchQuota({ apiKey: key, env: {} });
+      },
+    });
   },
 });
