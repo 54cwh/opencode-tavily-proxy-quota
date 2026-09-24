@@ -121,10 +121,15 @@ function TavilyQuotaCommands(props: {
               : next.status === "error"
                 ? next.message
                 : "still loading…";
+          // Tie the toast to the open session so the host can title it and offer
+          // to open it if the session's family is not on screen.
+          const route = props.context.ui.router.current();
+          const sessionID = route.type === "session" ? route.sessionID : undefined;
           props.context.ui.toast.show({
             title: "Tavily quota",
             message,
             variant: next.status === "error" ? "error" : "info",
+            ...(sessionID ? { sessionID } : {}),
           });
         },
       },
