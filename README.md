@@ -1,9 +1,11 @@
-# opencode-tavily-quota
+# opencode-tavily-proxy-quota
 
 An OpenCode 2 TUI plugin that shows the remaining Tavily API credits in the
 session sidebar.
 
-This fork adds pooled-quota support: point it at a
+A fork of
+[cardin/opencode-tavily-quota](https://github.com/cardin/opencode-tavily-quota)
+that adds **pooled-quota support**: point it at a
 [TavilyProxyManager](https://github.com/xuncv/TavilyProxyManager) reverse proxy
 and the sidebar shows credits summed across every key in the proxy's pool,
 instead of a single Tavily account. See [Tavily proxy pool](#tavily-proxy-pool).
@@ -17,14 +19,19 @@ resets in 6d 12h
 
 ## Install
 
+This fork ships from GitHub, not npm — the npm package
+`@cardinal4/opencode-tavily-quota` is the upstream version without proxy
+support:
+
 ```sh
-opencode plugin add @cardinal4/opencode-tavily-quota
+opencode plugin add github:54cwh/opencode-tavily-proxy-quota
 ```
 
-Or declare it in `cli.json` to pass the API key option (see
-[Configuration](#configuration)). If a local copy exists under
-`~/.config/opencode/plugins/opencode-tavily-quota/`, remove it after installing
-the package so the plugin is not loaded twice.
+Or declare it in `cli.json` to pass options (see
+[Configuration](#configuration)). The install runs the package's `prepare`
+build, so the first install compiles `dist/` from source. If a local copy exists
+under `~/.config/opencode/plugins/opencode-tavily-proxy-quota/`, remove it after
+installing the package so the plugin is not loaded twice.
 
 The sidebar follows the built-in quota styling — the heading uses the default
 text color and the body (bar included) uses the muted/subdued text color. A
@@ -81,7 +88,7 @@ the API key as a plugin option instead, register the plugin in `cli.json`:
 {
   "plugins": [
     {
-      "package": "@cardinal4/opencode-tavily-quota@latest",
+      "package": "github:54cwh/opencode-tavily-proxy-quota",
       "options": {
         "apiKey": "tvly-..."
       }
@@ -105,7 +112,7 @@ reference as `apiKey` to avoid pasting the raw key into `cli.json`:
 {
   "plugins": [
     {
-      "package": "@cardinal4/opencode-tavily-quota@latest",
+      "package": "github:54cwh/opencode-tavily-proxy-quota",
       "options": {
         "apiKey": "{file:~/.secrets/tavily-api-key}"
       }
@@ -133,7 +140,7 @@ use to talk to the proxy, not a `tvly-` key):
 {
   "plugins": [
     {
-      "package": "@cardinal4/opencode-tavily-quota@latest",
+      "package": "github:54cwh/opencode-tavily-proxy-quota",
       "options": {
         "apiKey": "<proxy master key>",
         "proxyUrl": "http://127.0.0.1:27890"
