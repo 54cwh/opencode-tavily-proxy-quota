@@ -13,7 +13,9 @@
  * color and the body (bar included) uses the muted/subdued text color.
  *
  * Authenticate with `TAVILY_API_KEY`, the `apiKey` plugin option in `cli.json`,
- * or OpenCode's active Tavily integration. A saved key is used server-side.
+ * or OpenCode's active Tavily integration. Set `proxyUrl` to read pooled quota
+ * from a TavilyProxyManager (`<proxyUrl>/api/stats`) instead of a single key.
+ * A saved key is used server-side.
  */
 
 import type { RGBA } from "@opentui/core";
@@ -144,6 +146,8 @@ export const TavilyQuotaTuiPlugin = Plugin.define({
   async setup(context) {
     const [state, setState] = createSignal<ViewState>({ status: "loading" });
     const apiKey = typeof context.options.apiKey === "string" ? context.options.apiKey : undefined;
+    const proxyUrl =
+      typeof context.options.proxyUrl === "string" ? context.options.proxyUrl : undefined;
     const remote = context.client.rpc(TavilyQuotaRpc);
     const refreshMs =
       typeof context.options.refreshMs === "number" && context.options.refreshMs > 0
@@ -159,6 +163,7 @@ export const TavilyQuotaTuiPlugin = Plugin.define({
       try {
         const result = await fetchQuotaWithFallback({
           apiKey,
+          proxyUrl,
           remote: () => remote.usage({}, {
             location: context.location ?? context.data.location.default(),
           }) as Promise<QuotaResult>,

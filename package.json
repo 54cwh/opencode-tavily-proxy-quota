@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@cardinal4/opencode-tavily-quota",
   "version": "1.1.1",
-  "description": "OpenCode 2 TUI plugin that shows remaining Tavily API credits in the sidebar.",
+  "description": "OpenCode 2 TUI plugin that shows remaining Tavily API credits in the sidebar, with optional pooled-quota support for a Tavily reverse proxy (TavilyProxyManager).",
   "type": "module",
   "license": "MIT",
   "main": "./dist/index.js",
@@ -27,17 +27,18 @@
     "opencode-plugin",
     "opencode-tui",
     "tavily",
+    "tavily-proxy",
     "quota",
     "credits"
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/cardin/opencode-tavily-quota.git"
+    "url": "git+https://github.com/54cwh/opencode-tavily-proxy-quota.git"
   },
   "bugs": {
-    "url": "https://github.com/cardin/opencode-tavily-quota/issues"
+    "url": "https://github.com/54cwh/opencode-tavily-proxy-quota/issues"
   },
-  "homepage": "https://github.com/cardin/opencode-tavily-quota#readme",
+  "homepage": "https://github.com/54cwh/opencode-tavily-proxy-quota#readme",
   "dependencies": {
     "@opencode/plugin": "^2.0.7",
     "@opentui/core": "^0.5.11",

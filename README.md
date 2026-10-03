@@ -3,6 +3,12 @@
 An OpenCode 2 TUI plugin that shows the remaining Tavily API credits in the
 session sidebar.
 
+This fork adds pooled-quota support: point it at a
+[TavilyProxyManager](https://github.com/xuncv/TavilyProxyManager) reverse proxy
+and the sidebar shows credits summed across every key in the proxy's pool,
+instead of a single Tavily account. See [Tavily proxy pool](#tavily-proxy-pool).
+Without `proxyUrl` it behaves exactly like upstream.
+
 ```
 Tavily
 resets in 6d 12h
@@ -113,6 +119,46 @@ reads a file's trimmed contents, with `~/` expanding to the home directory and
 relative paths resolving against the CLI's working directory. `TAVILY_API_KEY`
 still wins over `apiKey` when both are set. A missing or unreadable file is
 reported in the sidebar instead of being used as the key.
+
+## Tavily proxy pool
+
+[TavilyProxyManager](https://github.com/xuncv/TavilyProxyManager) is a
+self-hosted reverse proxy that fronts a pool of Tavily API keys and picks a key
+per request. Its `GET /api/stats` endpoint reports credits summed across the
+whole pool. Set `proxyUrl` to read that endpoint instead of a single key's
+`/usage`, and set `apiKey` to the proxy's **master key** (the credential clients
+use to talk to the proxy, not a `tvly-` key):
+
+```json title="cli.json"
+{
+  "plugins": [
+    {
+      "package": "@cardinal4/opencode-tavily-quota@latest",
+      "options": {
+        "apiKey": "<proxy master key>",
+        "proxyUrl": "http://127.0.0.1:27890"
+      }
+    }
+  ]
+}
+```
+
+The sidebar then shows `limit = total_quota`, `remaining = total_remaining`, and
+the heading reports the key count (`Tavily Pool (6 keys)`). A trailing slash on
+`proxyUrl` is fine. `apiKey` still accepts `{env:...}`/`{file:...}` references,
+so the master key can stay out of `cli.json`. The proxy must be reachable from
+wherever the TUI runs.
+
+Notes:
+
+- The reset countdown still uses the calendar-month approximation. Pooled keys
+  can belong to different accounts with different reset dates, so treat it as a
+  rough indicator only.
+- `total_quota` is the sum of each key's monthly allowance, which is what the
+  sidebar bar is relative to; it is not a real single-account plan.
+- `TAVILY_API_KEY` in the environment still wins over `apiKey`, so don't set it
+  to a raw Tavily key when using a proxy.
+- With `proxyUrl` set the plugin never calls `api.tavily.com` directly.
 
 ## Commands
 

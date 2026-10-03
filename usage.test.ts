@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  deriveProxySnapshot,
   deriveSnapshot,
   expandOptionValue,
   fetchQuota,
@@ -19,6 +20,8 @@ import {
   formatResetLine,
   nextMonthlyResetAt,
   progressBar,
+  PROXY_STATS_PATH,
+  proxyStatsUrl,
   resolveApiKey,
   SIDEBAR_WIDTH,
 } from "./usage.ts";
@@ -380,4 +383,93 @@ test("fetchQuotaWithFallback uses OpenCode only when the CLI has no key", async 
   const connected = await fetchQuotaWithFallback({ env: {}, remote, fetchImpl });
   assert.deepEqual(connected, { ok: false, message: "not connected" });
   assert.equal(remoteCalls, 1);
+});
+
+const PROXY_STATS = {
+  total_quota: 6000,
+  total_used: 1157,
+  total_remaining: 4843,
+  key_count: 6,
+  active_key_count: 5,
+  today_requests: 2,
+};
+
+test("proxyStatsUrl targets /api/stats and tolerates a trailing slash", () => {
+  assert.equal(proxyStatsUrl("http://127.0.0.1:27890"), `http://127.0.0.1:27890${PROXY_STATS_PATH}`);
+  assert.equal(proxyStatsUrl("http://127.0.0.1:27890/"), `http://127.0.0.1:27890${PROXY_STATS_PATH}`);
+  assert.equal(proxyStatsUrl("  http://host:1//  "), `http://host:1${PROXY_STATS_PATH}`);
+});
+
+test("deriveProxySnapshot sums the whole pool and names the key count", () => {
+  const result = deriveProxySnapshot(PROXY_STATS, 99);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.snapshot.planName, "Tavily Pool (6 keys)");
+  assert.equal(result.snapshot.limit, 6000);
+  assert.equal(result.snapshot.used, 1157);
+  assert.equal(result.snapshot.remaining, 4843);
+  assert.equal(result.snapshot.updatedAt, 99);
+  assert.ok(Math.abs(result.snapshot.percentRemaining - (4843 / 6000) * 100) < 1e-9);
+});
+
+test("deriveProxySnapshot falls back to quota minus used without total_remaining", () => {
+  const result = deriveProxySnapshot({ total_quota: 1000, total_used: 250 }, 0);
+  assert.equal(result.ok, true);
+  if (result.ok) assert.equal(result.snapshot.remaining, 750);
+});
+
+test("deriveProxySnapshot clamps remaining at zero and errors without a pool quota", () => {
+  const over = deriveProxySnapshot({ total_quota: 100, total_used: 150 });
+  assert.equal(over.ok, true);
+  if (over.ok) {
+    assert.equal(over.snapshot.remaining, 0);
+    assert.equal(over.snapshot.used, 150);
+  }
+  assert.equal(deriveProxySnapshot({ total_used: 5 }).ok, false);
+  assert.equal(deriveProxySnapshot({ total_quota: 0 }).ok, false);
+});
+
+test("fetchQuota reads the proxy pool when proxyUrl is set", async () => {
+  let url: unknown = null;
+  let authorization: string | null = null;
+  const result = await fetchQuota({
+    env: {},
+    apiKey: "master-key",
+    proxyUrl: "http://127.0.0.1:27890/",
+    now: 7,
+    fetchImpl: (async (input: unknown, init?: RequestInit) => {
+      url = input;
+      authorization = new Headers(init?.headers).get("authorization");
+      return jsonResponse(PROXY_STATS);
+    }) as typeof fetch,
+  });
+  assert.equal(url, `http://127.0.0.1:27890${PROXY_STATS_PATH}`);
+  assert.equal(authorization, "Bearer master-key");
+  assert.equal(result.ok, true);
+  if (result.ok) assert.equal(result.snapshot.remaining, 4843);
+});
+
+test("fetchQuota reports a missing proxy master key without calling fetch", async () => {
+  let called = false;
+  const result = await fetchQuota({
+    env: {},
+    proxyUrl: "http://127.0.0.1:27890",
+    fetchImpl: (async () => {
+      called = true;
+      return jsonResponse(PROXY_STATS);
+    }) as typeof fetch,
+  });
+  assert.equal(called, false);
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.match(result.message, /no master key for the Tavily proxy/);
+});
+
+test("fetchQuota maps a proxy 401 to a master-key message", async () => {
+  const result = await fetchQuota({
+    env: { TAVILY_API_KEY: "k" },
+    proxyUrl: "http://127.0.0.1:27890",
+    fetchImpl: (async () => new Response("nope", { status: 401 })) as typeof fetch,
+  });
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.match(result.message, /proxy rejected the master key/);
 });

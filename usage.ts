@@ -15,6 +15,12 @@ import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 
 export const USAGE_URL = "https://api.tavily.com/usage";
+/**
+ * Path the TavilyProxyManager (https://github.com/xuncv/TavilyProxyManager)
+ * exposes to report quota summed across every key in its pool. Used when the
+ * `proxyUrl` option is set, instead of a single account's `/usage`.
+ */
+export const PROXY_STATS_PATH = "/api/stats";
 export const DEFAULT_TIMEOUT_MS = 15_000;
 
 /**
@@ -50,6 +56,22 @@ export interface TavilyUsagePayload {
   } | null;
 }
 
+/** Shape of `GET <proxyUrl>/api/stats` from TavilyProxyManager (optional fields). */
+export interface TavilyProxyStatsPayload {
+  /** Credits included across every pooled key this cycle. */
+  total_quota?: number | null;
+  /** Credits already consumed across the pool. */
+  total_used?: number | null;
+  /** Credits still available across the pool. */
+  total_remaining?: number | null;
+  /** Number of keys in the pool. */
+  key_count?: number | null;
+  /** Number of keys currently active (not disabled/exhausted). */
+  active_key_count?: number | null;
+  /** Requests served today (informational). */
+  today_requests?: number | null;
+}
+
 export interface QuotaSnapshot {
   /** Plan name reported by Tavily, e.g. `Researcher`. */
   planName: string;
@@ -74,6 +96,13 @@ export interface FetchQuotaOptions {
   env?: Record<string, string | undefined>;
   /** Key supplied as a plugin option (e.g. from `cli.json`). */
   apiKey?: string;
+  /**
+   * Base URL of a running TavilyProxyManager, e.g. `http://127.0.0.1:27890`.
+   * When set, quota is read from `<proxyUrl>/api/stats` (summed across the
+   * pool) instead of a single key's `/usage`, and `apiKey` is sent as the proxy
+   * master key.
+   */
+  proxyUrl?: string;
   /** File reader for `{file:...}` references in `apiKey`. Injected by tests. */
   readFile?: (path: string) => string;
   /** Home directory for `~/` in `{file:...}`. Injected by tests. */
@@ -229,6 +258,55 @@ export function deriveSnapshot(
   };
 }
 
+/**
+ * Build the `<proxyUrl>/api/stats` URL, tolerating trailing slashes so both
+ * `http://host:27890` and `http://host:27890/` work.
+ */
+export function proxyStatsUrl(proxyUrl: string): string {
+  return `${proxyUrl.trim().replace(/\/+$/, "")}${PROXY_STATS_PATH}`;
+}
+
+/**
+ * Derive the pooled quota from a TavilyProxyManager `/api/stats` payload.
+ *
+ * `total_quota` is the sum of every key's allowance, so the sidebar shows the
+ * whole pool rather than whichever single key the proxy happened to pick.
+ * Falls back to `total_quota - total_used` when `total_remaining` is absent.
+ */
+export function deriveProxySnapshot(
+  payload: TavilyProxyStatsPayload,
+  now: number = Date.now(),
+): QuotaResult {
+  const limit = finite(payload.total_quota);
+  const used = finite(payload.total_used);
+  const remainingRaw = finite(payload.total_remaining);
+
+  if (limit === null || limit <= 0) {
+    return {
+      ok: false,
+      message: "tavily proxy reported no pooled quota (check the proxy is running and keys are added)",
+    };
+  }
+
+  const remaining = Math.max(0, remainingRaw ?? limit - (used ?? 0));
+  const consumed = Math.max(0, used ?? limit - remaining);
+  const keyCount = finite(payload.key_count);
+  const planName =
+    keyCount !== null && keyCount > 0 ? `Tavily Pool (${keyCount} keys)` : "Tavily Pool";
+
+  return {
+    ok: true,
+    snapshot: {
+      planName,
+      used: consumed,
+      limit,
+      remaining,
+      percentRemaining: (remaining / limit) * 100,
+      updatedAt: now,
+    },
+  };
+}
+
 /** Format a remaining percentage for the sidebar. */
 export function formatPercent(percentRemaining: number): string {
   const clamped = Math.max(0, Math.min(100, percentRemaining));
@@ -317,17 +395,24 @@ export async function fetchQuota(options: FetchQuotaOptions = {}): Promise<Quota
     // that inline instead of rejecting the sidebar render.
     return { ok: false, message: error instanceof Error ? error.message : String(error) };
   }
+  const proxyUrl = (options.proxyUrl ?? "").trim();
+
   if (!key) {
     return {
       ok: false,
-      message: "no Tavily API key (set TAVILY_API_KEY or the apiKey plugin option)",
+      message: proxyUrl
+        ? "no master key for the Tavily proxy (set the apiKey plugin option)"
+        : "no Tavily API key (set TAVILY_API_KEY or the apiKey plugin option)",
     };
   }
+
+  const endpoint = proxyUrl ? proxyStatsUrl(proxyUrl) : USAGE_URL;
+  const endpointLabel = proxyUrl ? PROXY_STATS_PATH : "/usage";
 
   const fetchImpl = options.fetchImpl ?? fetch;
   let response: Response;
   try {
-    response = await fetchImpl(USAGE_URL, {
+    response = await fetchImpl(endpoint, {
       headers: { Authorization: `Bearer ${key}` },
       signal: AbortSignal.timeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS),
     });
@@ -337,21 +422,26 @@ export async function fetchQuota(options: FetchQuotaOptions = {}): Promise<Quota
   }
 
   if (response.status === 401) {
-    return { ok: false, message: "API key rejected (401)" };
+    return {
+      ok: false,
+      message: proxyUrl ? "proxy rejected the master key (401)" : "API key rejected (401)",
+    };
   }
   if (response.status === 429) {
-    return { ok: false, message: "rate limited on /usage (10 req / 10 min)" };
+    return { ok: false, message: `rate limited on ${endpointLabel} (10 req / 10 min)` };
   }
   if (!response.ok) {
-    return { ok: false, message: `HTTP ${response.status} from /usage` };
+    return { ok: false, message: `HTTP ${response.status} from ${endpointLabel}` };
   }
 
-  let payload: TavilyUsagePayload;
+  let payload: TavilyUsagePayload | TavilyProxyStatsPayload;
   try {
-    payload = (await response.json()) as TavilyUsagePayload;
+    payload = (await response.json()) as TavilyUsagePayload | TavilyProxyStatsPayload;
   } catch {
-    return { ok: false, message: "invalid JSON from /usage" };
+    return { ok: false, message: `invalid JSON from ${endpointLabel}` };
   }
 
-  return deriveSnapshot(payload, options.now);
+  return proxyUrl
+    ? deriveProxySnapshot(payload as TavilyProxyStatsPayload, options.now)
+    : deriveSnapshot(payload as TavilyUsagePayload, options.now);
 }
